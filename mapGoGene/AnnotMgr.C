@@ -1,0 +1,269 @@
+#include <fstream>
+#include <iostream>
+#include <string.h>
+
+#include "AnnotTerm.H"
+#include "AnnotMgr.H"
+
+AnnotMgr::AnnotMgr()
+{
+	annotTermCnt=0;
+}
+
+AnnotMgr::~AnnotMgr()
+{
+}
+
+int
+AnnotMgr::setTermType(const char* sName)
+{
+	termtype.append(sName);
+	return 0;
+}
+
+int 
+AnnotMgr::readAnnotTerms(const char* aFName)
+{
+	ifstream inFile(aFName);
+	string strBuffer;
+	char* buffer=NULL;
+	int buffLength=0;
+	int leftOutAnnotTerm=0;
+	int species=0;
+	if(strstr(aFName,"fly")!=NULL){
+	  species=1;
+	}
+
+	if((strstr(aFName,"yeast")!=NULL) || (strstr(aFName,"afum")!=NULL)){//yeast or A. fumigatus
+	  species=2;
+	}
+
+	if(strstr(aFName,"mouse")!=NULL){
+	  species=3;
+	}
+
+	if(strstr(aFName,"human")!=NULL){
+	  species=4;
+	}
+
+	if(strstr(aFName,"pombe")!=NULL){
+	  species=5;
+	}
+
+	while(inFile.good())
+	{
+		getline(inFile,strBuffer);
+		if(strBuffer.length()<=0)
+		{
+			continue;
+		}
+		if(strstr(strBuffer.c_str(),"!")!=NULL)
+		{
+			continue;
+		}
+		if((buffer==NULL) || (buffLength<=strBuffer.length()))
+		{
+			if(buffer!=NULL)
+			{
+				delete[] buffer;
+			}
+			buffer=new char[strBuffer.length()+1];
+		}
+		strcpy(buffer,strBuffer.c_str());
+		populateAnnotTermData(buffer,species);
+	}
+	inFile.close();
+	cout <<"Read in " << annotSet.size() << " annots" << endl;
+	cout <<"Number of genes with annot information " << geneSet.size() << endl;
+	return 0;
+}
+
+map<string,AnnotTerm*>& 
+AnnotMgr::getAllAnnotations()
+{
+	return annotSet;
+}
+
+AnnotTerm* 
+AnnotMgr::getAnnotTerm(const char* annotName)
+{
+	string annotKey(annotName);
+	if(annotSet.find(annotKey)==annotSet.end())
+	{
+		return NULL;
+	}
+	return annotSet[annotKey];
+}
+
+//Iterate over all the annots. For each annot generate a row with columns corresponding to
+//generows. Set entry 1 if the annot has gene and entry 0 if the annot does not have gene
+int
+AnnotMgr::dumpAnnotTermGeneMatrix(const char* afName)
+{
+	//Used to map the row number and the annot name
+	ofstream annotidFile("annotidname.txt");
+	ofstream oFile(afName);
+	int annotID=0;
+	for(map<string,AnnotTerm*>::iterator tIter=annotSet.begin();tIter!=annotSet.end();tIter++)
+	{
+		if(annotID==0)
+		{
+			//Used to map the column number and the gene name
+			int geneID=0;
+			ofstream geneidFile("geneidname.txt");
+			for(map<string,int>::iterator gIter=geneSet.begin();gIter!=geneSet.end();gIter++)
+			{
+				geneidFile << gIter->first <<"\t" << geneID << endl;
+				geneSet[gIter->first]=geneID;
+				geneID++;
+			}
+			geneidFile.close();
+		}
+		string& annotName=annotIDtoName[tIter->first];
+		annotidFile << annotName << "\t" <<  annotID << endl;
+		//Now generate row for this annot
+		for(map<string,int>::iterator gIter=geneSet.begin();gIter!=geneSet.end();gIter++)
+		{
+			AnnotTerm* annot=tIter->second;
+			bool genePresent=annot->isMember(gIter->first);
+			if(gIter!=geneSet.begin())
+			{
+				oFile <<" ";
+			}
+			if(genePresent)
+			{
+				oFile <<"1";
+			}
+			else
+			{
+				oFile <<"0";
+			}
+		}
+		oFile<<endl;
+		annotID++;
+	}
+
+	oFile.close();
+	annotidFile.close();
+	return 0;
+}
+
+//This is a tab-delimited file. The number of tokens per line is the same
+int 
+AnnotMgr::populateAnnotTermData(char* aBuffer, int species)
+{
+	int tokCnt=0;
+	string gene;
+	string goid;
+	string aspect;
+	char* start=aBuffer;
+	char* end=start;
+	while(start!=NULL)
+	{
+		char* end=strchr(start,'\t');
+		if(end!=NULL)
+		{
+			*end='\0';
+		}
+		switch(tokCnt)
+		{
+			case 1:
+			{
+			  if (species!=1 && species!=3 && species!=5){//Fly,mouse,pombe
+			    break;
+			  }
+				char* pos=strchr(start,'|');
+				if(pos!=NULL)
+				{
+					*pos='\0';
+				}
+				gene.append(start);
+				break;
+			}
+
+			case 2:
+			{
+			  if (species!=4){//human
+			    break;
+			  }
+				char* pos=strchr(start,'|');
+				if(pos!=NULL)
+				{
+					*pos='\0';
+				}
+				gene.append(start);
+				break;
+			}
+
+			case 4:
+			{
+				goid.append(start);
+				break;
+			}
+			case 8:
+			{
+				if(strcmp(start,"F")==0)
+				{
+					aspect.append("molecular_function");
+				}
+				else if(strcmp(start,"P")==0)
+				{
+					aspect.append("biological_process");
+				}
+				else if(strcmp(start,"C")==0)
+				{
+					aspect.append("cellular_component");
+				}
+				break;
+			}
+
+			case 10:
+			{
+			  if (species!=2){//yeast or A. fumigatus
+			    break;
+			  }
+				char* pos=strchr(start,'|');
+				if(pos!=NULL)
+				{
+					*pos='\0';
+				}
+				gene.append(start);
+				break;
+			}
+			default:
+			{
+				break;
+			}
+		}
+		if(end!=NULL)
+		{
+			start=end+1;
+		}
+		else
+		{
+			start=NULL;
+		}
+		tokCnt++;
+	}
+	if(strcmp(aspect.c_str(),termtype.c_str())!=0)
+	{
+		return 0;
+	}
+	
+	AnnotTerm* annot=NULL;
+	if(annotSet.find(goid)==annotSet.end())
+	{
+		annotTermCnt++;
+		annot=new AnnotTerm;
+		annot->setAnnotTermName(goid.c_str());
+		annotSet[goid]=annot;
+	}
+	else
+	{
+		annot=annotSet[goid];
+	}
+	annot->addMemberGene(gene.c_str());
+	geneSet[gene]=0;
+	return 0;
+}
+
